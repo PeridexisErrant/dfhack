@@ -108,43 +108,34 @@ from lxml import etree
 import textwrap
 
 
-def desired_indent(line):
-    indent = len(line) - len(line.lstrip())
-    if line.strip().startswith('<'):
-        indent += 4
-    return ' ' * indent
-
-
 def wrap_line(line, max_len=74):
-    # Intents, and effectively turns comment nodes into plain text
+    # Indents, and effectively turns comment nodes into plain text
     line = '    ' + line.rstrip().replace('<comment>', '').replace(
-        '</comment>', '').replace('-&gt;', '->')
+        '</comment>', '').replace('&gt;', '>').replace('&lt;', '<')
     if len(line) <= max_len:
         return line
     return textwrap.fill(
         line, width=max_len, expand_tabs=False, replace_whitespace=False,
         drop_whitespace=False, break_on_hyphens=False,
-        subsequent_indent=desired_indent(line))
+        subsequent_indent=' ' * (
+            len(line) - len(line.lstrip()) + line.strip().startswith('<') * 4))
 
 
-def elem_to_text(elem, fn):
+def elem_to_text(elem, f_name):
     """Do any filtering and turn an element to text"""
     name = elem.attrib.get('name') or elem.attrib.get('type-name')
     if not name:  # comment in df.globals.xml explaining update process
         return ''
     text = '\n'.join(wrap_line(l) for l in etree.tostring(
         elem, pretty_print=True).decode('ascii').splitlines())
-    template = '.. _structures.{}.{}:\n\n{}\n{}\n\n.. code-block:: xml\n\n{}'
-    return template.format(fn, name, name, '=' * len(name), text)
+    template = '.. _structures.{}:\n\n{}\n{}\n\n.. code-block:: xml\n\n{}'
+    return template.format(f_name + '.' + name, name, '=' * len(name), text)
 
 
-def xml_to_rst(xml_text, name):
+def xml_to_rst(elems, name):
     """Turn text read from a df.*.xml file into rst markup."""
     header = '.. _structures.{name}:\n\n{line}\n{name}\n{line}'.format(
         name=name, line='#' * len(name))
-
-    parser = etree.XMLParser(remove_blank_text=True)
-    elems = etree.fromstring(xml_text, parser)
 
     # remove code-helper nodes
     for code_node in elems.xpath('//code-helper'):
@@ -164,19 +155,27 @@ def xml_to_rst(xml_text, name):
         comment.text = node_with_comment.attrib.pop('comment')
         node_with_comment.append(comment)
 
-    def san_text(text):
-        """Get rid of whitespace and newlines in text."""
-        clean = ' '.join(filter(None, (l.replace('--', '').strip()
-                                       for l in (text or '').splitlines())))
-        return clean or None
-
-    # Remove whitespace to allow better pretty-printing?
+    # Better pretty-printing: remove whitespace, move text to comment nodes
     for e in elems.iter():
         e.tail = None
-        e.text = san_text(e.text)
+        if e.text is None:
+            continue
+        e.text = ' '.join(filter(bool, map(str.strip, e.text.splitlines())))
+        if e.tag != 'comment':
+            comment = etree.Element('comment')
+            comment.text, e.text = e.text, None
+            e.insert(0, comment)
 
     body = '\n\n'.join(elem_to_text(e, name) for e in elems)
     return header + '\n\n' + body + '\n\n'
+
+
+def skip_gen(outfile, *infiles):
+    """Return True if the outfile exists and is younger than all infiles."""
+    if not os.path.isfile(outfile):
+        return False
+    return os.stat(outfile).st_mtime > max(
+        [os.stat(f).st_mtime for f in list(infiles) + [__file__]])
 
 
 def write_xml_descriptions():
@@ -188,15 +187,19 @@ def write_xml_descriptions():
 
     XML_files = glob.glob('./library/xml/df.*.xml')
     for fname in XML_files:
+        name = os.path.basename(fname).replace('df.', '').replace('.xml', '')
+        out_file = 'docs/_auto/structures/' + name + '.rst'
+        if skip_gen(out_file, fname):
+            continue
         with open(fname) as f:
             xml_text = f.read()
-        name = os.path.basename(fname).replace('df.', '').replace('.xml', '')
-        with open('docs/_auto/structures/' + name + '.rst', 'w') as f:
-            f.write(xml_to_rst(xml_text, name))
+        parser = etree.XMLParser(remove_blank_text=True)
+        elems = etree.fromstring(xml_text, parser)
+        with open(out_file, 'w') as f:
+            f.write(xml_to_rst(elems, name))
 
 
 write_xml_descriptions()
-
 
 # -- General configuration ------------------------------------------------
 

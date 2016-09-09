@@ -18,9 +18,8 @@ The following documents describe how this process works:
    /library/xml/SYNTAX
    /library/xml/how-to-update
 
-This experimental section included the ``df-structures`` xml files in our
-documentation.  We hope to eventually parse to nice markup; but either way
-you can read about what structures are available to developers.
+This experimental section includes the ``df-structures`` xml files in our
+documentation, so you can read about what structures are available.
 
 .. toctree::
    :maxdepth: 1
