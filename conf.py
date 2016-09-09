@@ -104,36 +104,78 @@ write_script_docs()
 # -- Work-in-progress XML descriptions ------------------------------------
 
 import glob
+from lxml import etree
 import textwrap
-import re
+
+
+def desired_indent(line):
+    indent = len(line) - len(line.lstrip())
+    if line.strip().startswith('<'):
+        indent += 4
+    return ' ' * indent
+
+
+def wrap_line(line, max_len=74):
+    # Intents, and effectively turns comment nodes into plain text
+    line = '    ' + line.rstrip().replace('<comment>', '').replace(
+        '</comment>', '').replace('-&gt;', '->')
+    if len(line) <= max_len:
+        return line
+    return textwrap.fill(
+        line, width=max_len, expand_tabs=False, replace_whitespace=False,
+        drop_whitespace=False, break_on_hyphens=False,
+        subsequent_indent=desired_indent(line))
+
+
+def elem_to_text(elem, fn):
+    """Do any filtering and turn an element to text"""
+    name = elem.attrib.get('name') or elem.attrib.get('type-name')
+    if not name:  # comment in df.globals.xml explaining update process
+        return ''
+    text = '\n'.join(wrap_line(l) for l in etree.tostring(
+        elem, pretty_print=True).decode('ascii').splitlines())
+    template = '.. _structures.{}.{}:\n\n{}\n{}\n\n.. code-block:: xml\n\n{}'
+    return template.format(fn, name, name, '=' * len(name), text)
 
 
 def xml_to_rst(xml_text, name):
     """Turn text read from a df.*.xml file into rst markup."""
-    header = '.. _structures-{name}:\n\n{line}\n{name}\n{line}'.format(
+    header = '.. _structures.{name}:\n\n{line}\n{name}\n{line}'.format(
         name=name, line='#' * len(name))
 
-    # Grab only the text of interest, and fix indentation
-    xml_text = xml_text.split(
-        '<data-definition>', 1)[1].split(
-        '</data-definition>', 1)[0]
+    parser = etree.XMLParser(remove_blank_text=True)
+    elems = etree.fromstring(xml_text, parser)
 
-    # wrap long lines...
-    def wrap_line(line, max_len=74):
-        line = line.rstrip()
-        if line.startswith('<!--') and line.endswith('-->'):
-            return ''
-        if len(line) <= max_len:
-            return line
-        return textwrap.fill(
-            line, width=max_len, expand_tabs=False, replace_whitespace=False,
-            drop_whitespace=False, break_on_hyphens=False,
-            subsequent_indent=' ' * (len(line) - len(line.lstrip()) + 4),
-            )
+    # remove code-helper nodes
+    for code_node in elems.xpath('//code-helper'):
+        code_node.getparent().remove(code_node)
 
-    xml_text = '\n'.join(wrap_line(l) for l in xml_text.splitlines())
-    xml_text = textwrap.indent(textwrap.dedent(xml_text.expandtabs(4)), '    ')
-    body = '.. code-block:: xml\n\n' + xml_text
+    # turn xml comments into comment nodes
+    for comment in elems.xpath('//comment()'):
+        parent = comment.getparent()
+        if parent is not None:
+            new = etree.Element('comment')
+            new.text = comment.text
+            parent.replace(comment, new)
+
+    # turn comment attributes into comment nodes
+    for node_with_comment in elems.xpath('//*[@comment]'):
+        comment = etree.Element('comment')
+        comment.text = node_with_comment.attrib.pop('comment')
+        node_with_comment.append(comment)
+
+    def san_text(text):
+        """Get rid of whitespace and newlines in text."""
+        clean = ' '.join(filter(None, (l.replace('--', '').strip()
+                                       for l in (text or '').splitlines())))
+        return clean or None
+
+    # Remove whitespace to allow better pretty-printing?
+    for e in elems.iter():
+        e.tail = None
+        e.text = san_text(e.text)
+
+    body = '\n\n'.join(elem_to_text(e, name) for e in elems)
     return header + '\n\n' + body + '\n\n'
 
 
