@@ -101,6 +101,61 @@ def write_script_docs():
 write_script_docs()
 
 
+# -- Work-in-progress XML descriptions ------------------------------------
+
+import glob
+import textwrap
+import re
+
+
+def xml_to_rst(xml_text, name):
+    """Turn text read from a df.*.xml file into rst markup."""
+    header = '.. _structures-{name}:\n\n{line}\n{name}\n{line}'.format(
+        name=name, line='#' * len(name))
+
+    # Grab only the text of interest, and fix indentation
+    xml_text = xml_text.split(
+        '<data-definition>', 1)[1].split(
+        '</data-definition>', 1)[0]
+
+    # wrap long lines...
+    def wrap_line(line, max_len=74):
+        line = line.rstrip()
+        if line.startswith('<!--') and line.endswith('-->'):
+            return ''
+        if len(line) <= max_len:
+            return line
+        return textwrap.fill(
+            line, width=max_len, expand_tabs=False, replace_whitespace=False,
+            drop_whitespace=False, break_on_hyphens=False,
+            subsequent_indent=' ' * (len(line) - len(line.lstrip()) + 4),
+            )
+
+    xml_text = '\n'.join(wrap_line(l) for l in xml_text.splitlines())
+    xml_text = textwrap.indent(textwrap.dedent(xml_text.expandtabs(4)), '    ')
+    body = '.. code-block:: xml\n\n' + xml_text
+    return header + '\n\n' + body + '\n\n'
+
+
+def write_xml_descriptions():
+    """Include descriptions of the df-structures in our docs."""
+    if not os.path.isdir('docs/_auto'):
+        os.mkdir('docs/_auto')
+    if not os.path.isdir('docs/_auto/structures'):
+        os.mkdir('docs/_auto/structures')
+
+    XML_files = glob.glob('./library/xml/df.*.xml')
+    for fname in XML_files:
+        with open(fname) as f:
+            xml_text = f.read()
+        name = os.path.basename(fname).replace('df.', '').replace('.xml', '')
+        with open('docs/_auto/structures/' + name + '.rst', 'w') as f:
+            f.write(xml_to_rst(xml_text, name))
+
+
+write_xml_descriptions()
+
+
 # -- General configuration ------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.

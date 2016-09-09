@@ -60,6 +60,5 @@ For Developers
    /Contributing
    /docs/Compile
    /docs/Lua API
-   /library/xml/SYNTAX
-   /library/xml/how-to-update
+   /docs/Structures
    /docs/Binpatches
